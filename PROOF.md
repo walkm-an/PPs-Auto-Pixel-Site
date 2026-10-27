@@ -1,6 +1,6 @@
 # Proof
 
-Numbers below come from the production build on this machine. `npm test` passed 16 tests. `npm run cells:check` printed `cells ok 1350`. `npm run build` printed `css ok`.
+Numbers below come from the production build on this machine. `npm test` passed 18 tests. `npm run cells:check` printed `cells ok 1350`. `npm run build` printed `css ok`.
 
 ## Build
 
@@ -8,7 +8,7 @@ Numbers below come from the production build on this machine. `npm test` passed 
 npm run build
 ```
 
-Vite 8.3.5 wrote `dist/assets/index-BnmWiYzY.js` at 24.90 kB, with gzip shown as 14.41 kB. The same file is 24901 bytes raw. `gzip -c -n -9` of that file is 14069 bytes. The first-load script is under 50KB either way. Geist Mono Latin 400 is a separate woff2 of 9.86 kB.
+Vite 8.3.5 wrote `dist/assets/index-DzkBWryN.js` at 25.05 kB, with gzip shown as 14.46 kB. The same file is 25059 bytes raw. `gzip -c -n -9` of that file is 14119 bytes. The first-load script is under 50KB either way. Geist Mono Latin 400 is a separate woff2 of 9.86 kB.
 
 ## Frame rate
 
@@ -18,7 +18,7 @@ Command, with `npm run preview` already serving `http://127.0.0.1:4173/`.
 node scripts/prove.mjs
 ```
 
-Google Chrome 156.0.8078.47, headless, on Linux with 4 cores. `uptime` just before the previous pass of this command read load average 0.00, 0.03, 0.00. The pass recorded here is the next one, on the same build. The median gap did not move.
+Google Chrome 156.0.8078.47, headless, on Linux with 4 cores. `uptime` just before the previous pass of this command read load average 0.00, 0.03, 0.00. The pass recorded here is the next one. The median gap did not move. That pass predates `CELL` and `sameGrid`. Those two edits do not change `stepWorld` or `paintPond`.
 
 The script sampled `requestAnimationFrame` for 2 seconds, five times, after the pond was running. Each sample saw 120 or 121 callbacks. The median gap in every sample was 16.7 ms. That interval is 60 frames per second, limited by the display refresh. The callback duration median was 0.1 ms and the max in the set was 0.4 ms.
 
@@ -28,7 +28,7 @@ This is one host, not a phone. A 30 fps phone was not measured. At a viewport wi
 
 ## Lighthouse
 
-One mobile run. Lighthouse 12.8.2, form factor mobile, simulated slow 4G and a 4x CPU slowdown. Load average at the start was 0.85, 0.24, 0.07, because the frame script had just finished. The run reported no `runtimeError`.
+One mobile run of the current build. Lighthouse 12.8.2, form factor mobile, simulated slow 4G and a 4x CPU slowdown. Load average at the start was 0.25, 0.18, 0.10. The run reported no `runtimeError`.
 
 Performance score 100.
 
