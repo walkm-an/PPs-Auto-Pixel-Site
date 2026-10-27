@@ -3,6 +3,8 @@
 // Cells are stored center-out so the loader can slice the string by time.
 export const TIGA_GLYPHS = [".", "+", "#", "@"] as const;
 
+export const PAGE_BG = { dark: '#141311', light: '#f3f1ea' } as const;
+
 export const tigaPack = {
   cols: 52,
   rows: 54,

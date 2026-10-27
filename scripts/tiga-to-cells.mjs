@@ -270,6 +270,8 @@ function renderModule(frame, gem) {
     '// Cells are stored center-out so the loader can slice the string by time.',
     `export const TIGA_GLYPHS = [${ramp}] as const;`,
     '',
+    `export const PAGE_BG = { dark: '${hex(DARK_BG)}', light: '${hex(LIGHT_BG)}' } as const;`,
+    '',
     'export const tigaPack = {',
     `  cols: ${frame.cols},`,
     `  rows: ${frame.rows},`,
