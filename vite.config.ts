@@ -25,6 +25,7 @@ export default defineConfig({
   appType: 'mpa',
   plugins: [previewMissingPage()],
   build: {
+    // light-dark() must ship unlowered because main.ts sets color-scheme at runtime and the polyfill only reads the stylesheet.
     cssTarget: ['chrome123', 'edge123', 'firefox120', 'safari17.5'],
   },
 })

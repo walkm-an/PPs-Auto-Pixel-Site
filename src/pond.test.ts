@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { gridMetrics, type Grid, type Point, type Rect } from './grid'
+import { gridMetrics, sameGrid, type Grid, type Point, type Rect } from './grid'
 import { createWorld, frameDt, stepWorld, type Device, type Motion, type PondEnv, type PondInput } from './pond'
 import { placePortrait, revealAt } from './portrait'
 
@@ -40,6 +40,11 @@ describe('gridMetrics', () => {
     expect(phone.dpr).toBe(2)
     expect(phone.cell).toBe(18)
     expect(phone.cols).toBeLessThan(desktop.cols)
+  })
+
+  it('matches only when width, height, dpr, cell, cols, rows, and origin match', () => {
+    expect(sameGrid(desktop, gridMetrics({ width: 1200, height: 800, dpr: 1 }))).toBe(true)
+    expect(sameGrid(desktop, phone)).toBe(false)
   })
 
   it('repairs a broken viewport into a one-cell grid', () => {
@@ -168,5 +173,13 @@ describe('placePortrait', () => {
       expect(c.row).toBeLessThan(small.rows)
     }
     expect(cells.length).toBeLessThan(placePortrait(desktop).length)
+  })
+
+  it('starts nearer the portrait center than it finishes', () => {
+    const cells = placePortrait(desktop)
+    const midCol = (Math.min(...cells.map((c) => c.col)) + Math.max(...cells.map((c) => c.col))) / 2
+    const midRow = (Math.min(...cells.map((c) => c.row)) + Math.max(...cells.map((c) => c.row))) / 2
+    const fromCenter = (c: { col: number; row: number }) => Math.hypot(c.col - midCol, c.row - midRow)
+    expect(fromCenter(cells[0])).toBeLessThan(fromCenter(cells[cells.length - 1]))
   })
 })

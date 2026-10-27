@@ -1,4 +1,5 @@
 export const TIGA_GLYPHS = [".", "+", "#", "@"] as const;
+export const CELL = { bytes: 6, x: 0, y: 1, r: 2, g: 3, b: 4, glyph: 5 } as const;
 
 export const PAGE_BG = { dark: '#141311', light: '#f3f1ea' } as const;
 

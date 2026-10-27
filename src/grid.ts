@@ -50,6 +50,19 @@ export function gridMetrics(viewport: Viewport): Grid {
   }
 }
 
+export function sameGrid(a: Grid, b: Grid): boolean {
+  return (
+    a.width === b.width &&
+    a.height === b.height &&
+    a.dpr === b.dpr &&
+    a.cell === b.cell &&
+    a.cols === b.cols &&
+    a.rows === b.rows &&
+    a.origin.x === b.origin.x &&
+    a.origin.y === b.origin.y
+  )
+}
+
 export function cellAt(grid: Grid, p: Point): { readonly col: number; readonly row: number } {
   const col = Math.floor((p.x - grid.origin.x) / grid.cell)
   const row = Math.floor((p.y - grid.origin.y) / grid.cell)

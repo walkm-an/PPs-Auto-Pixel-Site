@@ -205,14 +205,7 @@ function buildCells(png) {
   }
 
   const keptCells = dropIslands(cells, 10);
-  const cx = (cols - 1) / 2;
-  const cy = (rows - 1) / 2;
-  const jitterSpan = Math.max(4, Math.floor(cols / 5));
-  for (const cell of keptCells) {
-    const dist = (cell.x - cx) ** 2 + (cell.y - cy) ** 2;
-    cell.score = dist * 10 + (hash(cell.x, cell.y) % jitterSpan);
-  }
-  keptCells.sort((a, b) => a.score - b.score || a.y - b.y || a.x - b.x);
+  keptCells.sort(byCenterOut(cols, rows));
 
   return { cols, rows, sky, cells: keptCells };
 }
@@ -246,16 +239,29 @@ function dropIslands(cells, minSize) {
   return kept;
 }
 
+const CELL = { bytes: 6, x: 0, y: 1, r: 2, g: 3, b: 4, glyph: 5 };
+
+function byCenterOut(cols, rows) {
+  const cx = (cols - 1) / 2;
+  const cy = (rows - 1) / 2;
+  const jitterSpan = Math.max(4, Math.floor(cols / 5));
+  const score = (cell) => {
+    const dist = (cell.x - cx) ** 2 + (cell.y - cy) ** 2;
+    return dist * 10 + (hash(cell.x, cell.y) % jitterSpan);
+  };
+  return (a, b) => score(a) - score(b) || a.y - b.y || a.x - b.x;
+}
+
 function packCells(cells) {
-  const buf = Buffer.alloc(cells.length * 6);
+  const buf = Buffer.alloc(cells.length * CELL.bytes);
   cells.forEach((cell, index) => {
-    const o = index * 6;
-    buf[o] = cell.x;
-    buf[o + 1] = cell.y;
-    buf[o + 2] = cell.r;
-    buf[o + 3] = cell.g;
-    buf[o + 4] = cell.b;
-    buf[o + 5] = cell.glyph;
+    const o = index * CELL.bytes;
+    buf[o + CELL.x] = cell.x;
+    buf[o + CELL.y] = cell.y;
+    buf[o + CELL.r] = cell.r;
+    buf[o + CELL.g] = cell.g;
+    buf[o + CELL.b] = cell.b;
+    buf[o + CELL.glyph] = cell.glyph;
   });
   return buf.toString('base64');
 }
@@ -266,6 +272,7 @@ function renderModule(frame, gem) {
   const ramp = GLYPH_RAMP.map((ch) => JSON.stringify(ch)).join(', ');
   const body = [
     `export const TIGA_GLYPHS = [${ramp}] as const;`,
+    `export const CELL = { bytes: ${CELL.bytes}, x: ${CELL.x}, y: ${CELL.y}, r: ${CELL.r}, g: ${CELL.g}, b: ${CELL.b}, glyph: ${CELL.glyph} } as const;`,
     '',
     `export const PAGE_BG = { dark: '${hex(DARK_BG)}', light: '${hex(LIGHT_BG)}' } as const;`,
     '',

@@ -75,14 +75,18 @@ function readFeeds(): number {
   }
 }
 
-function addFeeds(n: number) {
-  feeds += n
-  count.value = String(feeds)
+function tryStoreFeeds(value: string) {
   try {
-    localStorage.setItem(FEEDS_KEY, String(feeds))
+    localStorage.setItem(FEEDS_KEY, value)
   } catch {
     return
   }
+}
+
+function addFeeds(n: number) {
+  feeds += n
+  count.value = String(feeds)
+  tryStoreFeeds(String(feeds))
 }
 
 const live = () => !document.hidden && onScreen

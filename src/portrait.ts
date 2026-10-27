@@ -1,5 +1,5 @@
-import { PAGE_BG, TIGA_GLYPHS, tigaPack } from './generated/tiga-pack'
-import type { Grid } from './grid'
+import { CELL, PAGE_BG, TIGA_GLYPHS, tigaPack } from './generated/tiga-pack'
+import { sameGrid, type Grid } from './grid'
 import type { Theme } from './ink'
 import type { Motion } from './pond'
 
@@ -26,18 +26,26 @@ export function placePortrait(grid: Grid): PortraitCell[] {
   const left = Math.floor((grid.cols - Math.ceil(tigaPack.cols / scale)) / 2)
   const top = Math.floor((grid.rows - Math.ceil(tigaPack.rows / scale)) / 2)
   const buckets = new Map<number, { col: number; row: number; glyph: number; r: number; g: number; b: number; n: number }>()
-  for (let o = 0; o < SOURCE.length; o += 6) {
-    const col = Math.floor(SOURCE[o] / scale)
-    const row = Math.floor(SOURCE[o + 1] / scale)
+  for (let o = 0; o < SOURCE.length; o += CELL.bytes) {
+    const col = Math.floor(SOURCE[o + CELL.x] / scale)
+    const row = Math.floor(SOURCE[o + CELL.y] / scale)
     const key = row * tigaPack.cols + col
     const bucket = buckets.get(key)
     if (bucket) {
-      bucket.r += SOURCE[o + 2]
-      bucket.g += SOURCE[o + 3]
-      bucket.b += SOURCE[o + 4]
+      bucket.r += SOURCE[o + CELL.r]
+      bucket.g += SOURCE[o + CELL.g]
+      bucket.b += SOURCE[o + CELL.b]
       bucket.n += 1
     } else {
-      buckets.set(key, { col, row, glyph: SOURCE[o + 5], r: SOURCE[o + 2], g: SOURCE[o + 3], b: SOURCE[o + 4], n: 1 })
+      buckets.set(key, {
+        col,
+        row,
+        glyph: SOURCE[o + CELL.glyph],
+        r: SOURCE[o + CELL.r],
+        g: SOURCE[o + CELL.g],
+        b: SOURCE[o + CELL.b],
+        n: 1,
+      })
     }
   }
   return Array.from(buckets.values(), (b) => ({
@@ -49,7 +57,7 @@ export function placePortrait(grid: Grid): PortraitCell[] {
 }
 
 export function revealAt(prev: Reveal | null, grid: Grid, elapsedMs: number, motion: Motion, theme: Theme): Reveal {
-  const kept = prev && prev.theme === theme && sameSurface(prev.grid, grid) ? prev : null
+  const kept = prev && prev.theme === theme && sameGrid(prev.grid, grid) ? prev : null
   const cells = kept ? kept.cells : placePortrait(grid)
   const from = kept ? kept.painted : 0
   const due = motion === 'still' ? cells.length : Math.floor((cells.length * Math.max(0, elapsedMs)) / REVEAL_MS)
@@ -76,11 +84,3 @@ export function paintPortrait(ctx: CanvasRenderingContext2D, prev: Reveal | null
     ctx.fillText(TIGA_GLYPHS[c.glyph], grid.origin.x + c.col * grid.cell + half, grid.origin.y + c.row * grid.cell + half)
   }
 }
-
-const sameSurface = (a: Grid, b: Grid) =>
-  a.width === b.width &&
-  a.height === b.height &&
-  a.dpr === b.dpr &&
-  a.cell === b.cell &&
-  a.cols === b.cols &&
-  a.rows === b.rows
