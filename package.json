@@ -1,0 +1,13 @@
+{
+  "name": "pps-auto-pixel-site",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "cells": "node scripts/tiga-to-cells.mjs",
+    "cells:check": "node scripts/tiga-to-cells.mjs --check"
+  },
+  "devDependencies": {
+    "pngjs": "^7.0.0"
+  }
+}
