@@ -100,11 +100,17 @@ const hash = (id: number, k: number) => {
 }
 
 function profile(s: number): number {
-  if (s < 0 || s > 1) return 0
-  if (s < 0.1) return 0.045 + s
-  if (s < 0.42) return 0.145 + (s - 0.1) * 0.05
-  if (s < 0.74) return 0.161 - (s - 0.42) * 0.24
-  return 0.084 + ((s - 0.74) / 0.26) * 0.055
+  if (s < 0 || s > 0.82) return 0
+  if (s < 0.16) return 0.048 + 0.026 * Math.sin((s / 0.16) * Math.PI * 0.5)
+  const u = (s - 0.16) / 0.66
+  return 0.014 + 0.06 * Math.pow(1 - u, 1.35)
+}
+
+const SHADES = 6
+
+function tone(rim: number, n: number): number {
+  const t = Math.min(0.999, Math.max(0, rim * 0.8 + Math.max(0, n) * 0.22 - Math.max(0, -n) * 0.16))
+  return Math.min(SHADES - 1, Math.floor(t * SHADES))
 }
 
 function pigmentOf(variety: Variety, s: number, n: number, id: number): Pigment {
@@ -134,14 +140,46 @@ function blot(id: number, s: number, n: number, k: number): boolean {
 
 function rgbOf(theme: Theme, pigment: Pigment, shade: number, depth: number, fin: boolean): string {
   const row = INK[theme][pigment]
-  const rgb = row[Math.min(row.length - 1, shade)]
+  const t = shade / (SHADES - 1)
+  const from = row[0]
+  const to = row[row.length - 1]
   const bg = BG[theme]
   const fade = (1 - depth) * 0.42
-  const r = Math.round(rgb[0] + (bg[0] - rgb[0]) * fade)
-  const g = Math.round(rgb[1] + (bg[1] - rgb[1]) * fade)
-  const b = Math.round(rgb[2] + (bg[2] - rgb[2]) * fade)
-  if (fin) return `rgba(${r},${g},${b},0.62)`
+  const mix = (i: number) => from[i] + (to[i] - from[i]) * t
+  const r = Math.round(mix(0) + (bg[0] - mix(0)) * fade)
+  const g = Math.round(mix(1) + (bg[1] - mix(1)) * fade)
+  const b = Math.round(mix(2) + (bg[2] - mix(2)) * fade)
+  if (fin) return `rgba(${r},${g},${b},0.7)`
   return `rgb(${r},${g},${b})`
+}
+
+function cover(
+  cells: Map<string, Mark>,
+  cx: number,
+  cy: number,
+  rad: number,
+  s: number,
+  layer: number,
+  pitch: number,
+  acrossOf: (x: number, y: number) => number,
+) {
+  if (rad < pitch * 0.28) return
+  const x0 = Math.floor((cx - rad) / pitch)
+  const x1 = Math.ceil((cx + rad) / pitch)
+  const y0 = Math.floor((cy - rad) / pitch)
+  const y1 = Math.ceil((cy + rad) / pitch)
+  for (let ix = x0; ix <= x1; ix++) {
+    for (let iy = y0; iy <= y1; iy++) {
+      const x = ix * pitch + (pitch - 1) / 2
+      const y = iy * pitch + (pitch - 1) / 2
+      const dist = Math.hypot(x - cx, y - cy)
+      if (dist > rad) continue
+      const mark: Mark = { s, n: Math.max(-1, Math.min(1, acrossOf(x, y))), rim: dist / rad, layer }
+      const key = `${ix},${iy}`
+      const prev = cells.get(key)
+      if (!prev || mark.layer < prev.layer || (mark.layer === prev.layer && mark.rim < prev.rim)) cells.set(key, mark)
+    }
+  }
 }
 
 function spine(fish: Fish, s: number, len: number): Point {
@@ -149,7 +187,7 @@ function spine(fish: Fish, s: number, len: number): Point {
   const hy = Math.sin(fish.heading)
   const wag = Math.sin(s * 3.1 - fish.wag * Math.PI * 2) * s * s
   const arc = Math.sin(s * Math.PI) * Math.sin(fish.id * 1.3)
-  const lat = len * (0.34 * arc + 0.22 * wag)
+  const lat = len * (0.14 * arc + 0.08 * wag)
   const along = (0.4 - s) * len
   return {
     x: fish.pos.x + hx * along - hy * lat,
@@ -157,57 +195,72 @@ function spine(fish: Fish, s: number, len: number): Point {
   }
 }
 
+function frameAt(fish: Fish, s: number, len: number) {
+  const origin = spine(fish, s, len)
+  const prev = spine(fish, Math.max(0, s - 0.025), len)
+  const next = spine(fish, s + 0.025, len)
+  let tailX = next.x - prev.x
+  let tailY = next.y - prev.y
+  const mag = Math.hypot(tailX, tailY) || 1
+  tailX /= mag
+  tailY /= mag
+  return { origin, tailX, tailY, dorsalX: tailY, dorsalY: -tailX }
+}
+
 function paintFish(ctx: CanvasRenderingContext2D, fish: Fish, grid: Grid, theme: Theme, pitch: number) {
   const depth = depthOf(fish.id)
-  const len = grid.width * (0.16 + depth * 0.09)
+  const len = grid.width * (0.15 + depth * 0.05)
   const cells = new Map<string, Mark>()
-  const steps = Math.max(16, Math.round(len / (pitch * 0.45)))
-  const backX = -Math.sin(fish.heading)
-  const backY = Math.cos(fish.heading)
+  const steps = Math.max(18, Math.round(len / (pitch * 0.4)))
   for (let i = 0; i <= steps; i++) {
-    const s = (i / steps) * 1.12
-    const origin = spine(fish, s, len)
+    const s = (i / steps) * 0.82
+    const { origin, tailX, tailY, dorsalX, dorsalY } = frameAt(fish, s, len)
     const half = profile(s) * len
-    if (half < pitch * 0.35) continue
-    const dorsal = s > 0.3 && s < 0.62 ? half * 0.42 * Math.sin(((s - 0.3) / 0.32) * Math.PI) : 0
-    const pectoral = s > 0.16 && s < 0.34 ? half * 0.55 * Math.sin(((s - 0.16) / 0.18) * Math.PI) : 0
-    const reach = half + Math.max(dorsal, pectoral)
-    const x0 = Math.floor((origin.x - reach) / pitch)
-    const x1 = Math.ceil((origin.x + reach) / pitch)
-    const y0 = Math.floor((origin.y - reach) / pitch)
-    const y1 = Math.ceil((origin.y + reach) / pitch)
-    for (let ix = x0; ix <= x1; ix++) {
-      for (let iy = y0; iy <= y1; iy++) {
-        const x = ix * pitch
-        const y = iy * pitch
-        const dx = x - origin.x
-        const dy = y - origin.y
-        const across = dx * backX + dy * backY
-        const along = Math.hypot(dx, dy)
-        const limit = half + (across > 0 ? dorsal : pectoral)
-        if (along > limit) continue
-        const n = Math.max(-1, Math.min(1, across / Math.max(half, 1)))
-        if (s > 0.9 && Math.abs(n) < 0.14) continue
-        const rim = along / limit
-        const layer = rim > 0.8 || s > 0.78 || (across > 0 && across > half) || (across < 0 && -across > half) ? 1 : 0
-        const mark: Mark = { s, n, rim, layer }
-        const key = `${ix},${iy}`
-        const prev = cells.get(key)
-        if (!prev || mark.layer < prev.layer || (mark.layer === prev.layer && mark.rim < prev.rim)) cells.set(key, mark)
-      }
+    const acrossOf = (x: number, y: number) =>
+      ((x - origin.x) * dorsalX + (y - origin.y) * dorsalY) / Math.max(half, 1)
+    cover(cells, origin.x, origin.y, half, s, 0, pitch, acrossOf)
+    if (s > 0.34 && s < 0.58) {
+      const u = Math.sin(((s - 0.34) / 0.24) * Math.PI)
+      const lift = half + len * 0.008 * u
+      cover(cells, origin.x + dorsalX * lift, origin.y + dorsalY * lift, len * 0.012 * u, s, 1, pitch, () => 0.75)
+    }
+    if (s > 0.18 && s < 0.42) {
+      const u = Math.sin(((s - 0.18) / 0.24) * Math.PI)
+      const reach = half + len * 0.03 * u
+      const swept = len * 0.09 * u
+      cover(
+        cells,
+        origin.x - dorsalX * reach + tailX * swept,
+        origin.y - dorsalY * reach + tailY * swept,
+        len * 0.048 * u,
+        s,
+        1,
+        pitch,
+        () => -0.7,
+      )
     }
   }
-  const eyeAt = spine(fish, 0.12, len)
-  const eyeX = Math.round((eyeAt.x + backX * profile(0.12) * len * 0.35) / pitch)
-  const eyeY = Math.round((eyeAt.y + backY * profile(0.12) * len * 0.35) / pitch)
+  const tailSteps = Math.max(8, Math.round((len * 0.22) / pitch))
+  for (let i = 0; i <= tailSteps; i++) {
+    const u = i / tailSteps
+    const s = 0.78 + u * 0.24
+    const { origin, dorsalX, dorsalY } = frameAt(fish, s, len)
+    const spread = len * u * 0.11
+    const rad = len * (0.042 - u * 0.006)
+    cover(cells, origin.x + dorsalX * spread, origin.y + dorsalY * spread, rad, s, 2, pitch, () => 0.9)
+    cover(cells, origin.x - dorsalX * spread, origin.y - dorsalY * spread, rad, s, 2, pitch, () => -0.9)
+  }
+  const eye = frameAt(fish, 0.1, len)
+  const eyeX = Math.round((eye.origin.x + eye.dorsalX * profile(0.1) * len * 0.42) / pitch)
+  const eyeY = Math.round((eye.origin.y + eye.dorsalY * profile(0.1) * len * 0.42) / pitch)
   ctx.globalAlpha = 0.58 + depth * 0.42
   for (const [key, mark] of cells) {
     const ghost = fish.variety === 'ghost'
     const [xs, ys] = key.split(',')
     const ix = Number(xs)
     const iy = Number(ys)
-    const fin = mark.layer === 1 || (mark.layer === 2 && mark.rim > 0.5)
-    const shade = mark.rim > 0.78 ? 2 : mark.rim > 0.48 ? 1 : mark.n > 0.35 ? 1 : 0
+    const fin = mark.layer !== 0
+    const shade = tone(mark.rim, mark.n)
     const pigment = fin ? 'fin' : pigmentOf(fish.variety, mark.s, mark.n, fish.id)
     const eye = ix === eyeX && iy === eyeY && mark.layer === 0
     const color = eye
@@ -217,53 +270,58 @@ function paintFish(ctx: CanvasRenderingContext2D, fish: Fish, grid: Grid, theme:
     if (list) list.push(ix * pitch, iy * pitch)
     else groups.set(color, [ix * pitch, iy * pitch])
   }
-  flush(ctx, Math.max(2, pitch - Math.max(1, pitch * 0.18)))
+  flush(ctx, inkOf(pitch))
   ctx.globalAlpha = 1
 }
 
 function paintRipple(ctx: CanvasRenderingContext2D, at: Point, age: number, life: number, theme: Theme, pitch: number) {
   const p = age / life
-  const radius = pitch * (2.2 + p * 7.5)
-  const count = Math.max(14, Math.round((Math.PI * 2 * radius) / (pitch * 1.65)))
   const [r, g, b] = RIPPLE[theme]
-  ctx.globalAlpha = (1 - p) * 0.72
+  const size = inkOf(pitch)
   ctx.fillStyle = `rgb(${r},${g},${b})`
-  const size = Math.max(2, pitch - Math.max(1, pitch * 0.18))
-  const half = size / 2
-  ctx.beginPath()
-  for (let i = 0; i < count; i++) {
-    const a = (i / count) * Math.PI * 2
-    const x = Math.round((at.x + Math.cos(a) * radius) / pitch) * pitch
-    const y = Math.round((at.y + Math.sin(a) * radius) / pitch) * pitch
-    ctx.rect(x - half, y - half, size, size)
+  for (let ring = 0; ring < 4; ring++) {
+    const local = p * 1.2 - ring * 0.2
+    if (local <= 0 || local >= 1) continue
+    const radius = pitch * (4.2 + local * 13)
+    const count = Math.max(20, Math.round((Math.PI * 2 * radius) / (pitch * 1.45)))
+    const fade = (1 - local) * (1 - local)
+    ctx.globalAlpha = fade * (0.9 - ring * 0.12)
+    ctx.beginPath()
+    for (let i = 0; i < count; i++) {
+      const a = (i / count) * Math.PI * 2
+      const x = Math.floor((at.x + Math.cos(a) * radius) / pitch) * pitch
+      const y = Math.floor((at.y + Math.sin(a) * radius) / pitch) * pitch
+      ctx.rect(x, y, size, size)
+    }
+    ctx.fill()
   }
-  ctx.fill()
   ctx.globalAlpha = 1
 }
 
+const inkOf = (pitch: number) => Math.max(2, pitch - 1)
+
 function paintFood(ctx: CanvasRenderingContext2D, at: Point, theme: Theme, pitch: number) {
-  const size = Math.max(2, pitch - Math.max(1, pitch * 0.18))
-  const x = Math.round(at.x / pitch) * pitch
-  const y = Math.round(at.y / pitch) * pitch
+  const size = inkOf(pitch)
+  const x = Math.floor(at.x / pitch) * pitch
+  const y = Math.floor(at.y / pitch) * pitch
   ctx.globalAlpha = 1
   ctx.fillStyle = ACCENT[theme]
-  ctx.fillRect(x - size / 2, y - size / 2, size, size)
+  ctx.fillRect(x, y, size, size)
 }
 
 function flush(ctx: CanvasRenderingContext2D, size: number) {
-  const half = size / 2
   for (const [color, list] of groups) {
     if (list.length === 0) continue
     ctx.fillStyle = color
     ctx.beginPath()
-    for (let i = 0; i < list.length; i += 2) ctx.rect(list[i] - half, list[i + 1] - half, size, size)
+    for (let i = 0; i < list.length; i += 2) ctx.rect(list[i], list[i + 1], size, size)
     ctx.fill()
     list.length = 0
   }
 }
 
 export function paintPond(ctx: CanvasRenderingContext2D, grid: Grid, world: World, theme: Theme): void {
-  const pitch = Math.max(6, Math.round(grid.width / 96))
+  const pitch = Math.max(4, Math.round(grid.width / 213))
   ctx.setTransform(grid.dpr, 0, 0, grid.dpr, 0, 0)
   ctx.globalAlpha = 1
   ctx.fillStyle = PAGE_BG[theme]

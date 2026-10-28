@@ -69,14 +69,14 @@ const MAX_SPEED = 6
 const SEEK_RADIUS = 12
 const STARTLE_RADIUS = 8
 const CLEARANCE = 0.75
-const SEPARATION = 5.5
+const SEPARATION = 12
 const BITE = 0.7
 const EDGE = 1
 const EDGE_MARGIN = 3
 const LOOKAHEAD = 2.5
 const STARTLE_S = 0.7
 const FOOD_S = 4
-const RIPPLE_S = 0.7
+const RIPPLE_S = 1.6
 const MAX_FOOD = 6
 const MAX_RIPPLES = 6
 const TURN = 2.4
@@ -181,7 +181,7 @@ export function stepWorld(
   }
 }
 
-const fishTarget = (grid: Grid) => Math.min(14, Math.max(5, Math.round((grid.cols * grid.rows) / 480)))
+const fishTarget = (grid: Grid) => (grid.width < 720 ? 6 : 8)
 
 function reconcile(fish: readonly Fish[], env: PondEnv, r: Rand, nextId: number, entry: Entry) {
   const target = fishTarget(env.grid)
