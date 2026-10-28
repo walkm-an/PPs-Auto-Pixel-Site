@@ -1,0 +1,22 @@
+{
+  "name": "pps-auto-pixel-site",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build && node scripts/check-css.mjs",
+    "preview": "vite preview",
+    "prove": "node scripts/prove.mjs",
+    "test": "vitest run",
+    "cells": "node scripts/tiga-to-cells.mjs",
+    "cells:check": "node scripts/tiga-to-cells.mjs --check"
+  },
+  "devDependencies": {
+    "@fontsource/geist-mono": "^5.3.0",
+    "pngjs": "^7.0.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5",
+    "vitest": "^5.0.5"
+  }
+}
