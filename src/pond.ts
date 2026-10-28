@@ -69,7 +69,7 @@ const MAX_SPEED = 6
 const SEEK_RADIUS = 12
 const STARTLE_RADIUS = 8
 const CLEARANCE = 0.75
-const SEPARATION = 12
+const SEPARATION = 16
 const BITE = 0.7
 const EDGE = 1
 const EDGE_MARGIN = 3
@@ -188,11 +188,30 @@ function reconcile(fish: readonly Fish[], env: PondEnv, r: Rand, nextId: number,
   if (fish.length >= target) return { fish: fish.slice(0, target), nextId }
   const grown = [...fish]
   let id = nextId
-  while (grown.length < target) grown.push(spawn(env, r, id++, entry))
+  while (grown.length < target) grown.push(spawn(env, r, id++, entry, grown))
   return { fish: grown, nextId: id }
 }
 
-function spawn(env: PondEnv, r: Rand, id: number, entry: Entry): Fish {
+function spreadPoint(env: PondEnv, r: Rand, taken: readonly Fish[]): Point {
+  const w = waterOf(env.grid)
+  const sample = () => ({ x: lerp(w.x0, w.x1, rand(r)), y: lerp(w.y0, w.y1, rand(r)) })
+  let best = sample()
+  let bestD = clearanceOf(best, taken)
+  for (let i = 0; i < 5; i++) {
+    const p = sample()
+    const d = clearanceOf(p, taken)
+    if (d > bestD) {
+      best = p
+      bestD = d
+    }
+  }
+  return best
+}
+
+const clearanceOf = (p: Point, taken: readonly Fish[]) =>
+  taken.reduce((min, f) => Math.min(min, distance(p, f.pos)), Infinity)
+
+function spawn(env: PondEnv, r: Rand, id: number, entry: Entry, taken: readonly Fish[]): Fish {
   const w = waterOf(env.grid)
   const x = lerp(w.x0, w.x1, rand(r))
   const y = lerp(w.y0, w.y1, rand(r))
@@ -207,7 +226,7 @@ function spawn(env: PondEnv, r: Rand, id: number, entry: Entry): Fish {
   return {
     id,
     variety: pickVariety(rand(r)),
-    pos: escape(entry === 'scatter' ? { x, y } : edges[side], env),
+    pos: escape(entry === 'scatter' ? spreadPoint(env, r, taken) : edges[side], env),
     heading: entry === 'scatter' ? turn * 2 * Math.PI : ((side + 1) * Math.PI) / 2 + turn - 0.5,
     speed: CRUISE * env.grid.cell,
     wag: rand(r),
@@ -275,9 +294,9 @@ function swim(
   for (const o of school) {
     const d = distance(f.pos, o.pos)
     if (o.id === f.id || d === 0 || d >= gap) continue
-    const k = (1 - d / gap) / d
-    sx += (f.pos.x - o.pos.x) * k
-    sy += (f.pos.y - o.pos.y) * k
+    const push = (1 - d / gap) * 6
+    sx += ((f.pos.x - o.pos.x) / d) * push
+    sy += ((f.pos.y - o.pos.y) / d) * push
   }
 
   const maxTurn = (startled ? 2 : 1) * TURN * dt

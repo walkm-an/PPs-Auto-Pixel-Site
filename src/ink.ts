@@ -101,9 +101,9 @@ const hash = (id: number, k: number) => {
 
 function profile(s: number): number {
   if (s < 0 || s > 0.82) return 0
-  if (s < 0.16) return 0.048 + 0.026 * Math.sin((s / 0.16) * Math.PI * 0.5)
+  if (s < 0.16) return 0.096 + 0.052 * Math.sin((s / 0.16) * Math.PI * 0.5)
   const u = (s - 0.16) / 0.66
-  return 0.014 + 0.06 * Math.pow(1 - u, 1.35)
+  return 0.028 + 0.12 * Math.pow(1 - u, 1.15)
 }
 
 const SHADES = 6
@@ -209,9 +209,9 @@ function frameAt(fish: Fish, s: number, len: number) {
 
 function paintFish(ctx: CanvasRenderingContext2D, fish: Fish, grid: Grid, theme: Theme, pitch: number) {
   const depth = depthOf(fish.id)
-  const len = grid.width * (0.15 + depth * 0.05)
+  const len = grid.width * (0.16 + depth * 0.045)
   const cells = new Map<string, Mark>()
-  const steps = Math.max(18, Math.round(len / (pitch * 0.4)))
+  const steps = Math.max(18, Math.round(len / (pitch * 0.7)))
   for (let i = 0; i <= steps; i++) {
     const s = (i / steps) * 0.82
     const { origin, tailX, tailY, dorsalX, dorsalY } = frameAt(fish, s, len)
@@ -221,18 +221,18 @@ function paintFish(ctx: CanvasRenderingContext2D, fish: Fish, grid: Grid, theme:
     cover(cells, origin.x, origin.y, half, s, 0, pitch, acrossOf)
     if (s > 0.34 && s < 0.58) {
       const u = Math.sin(((s - 0.34) / 0.24) * Math.PI)
-      const lift = half + len * 0.008 * u
-      cover(cells, origin.x + dorsalX * lift, origin.y + dorsalY * lift, len * 0.012 * u, s, 1, pitch, () => 0.75)
+      const lift = half + len * 0.012 * u
+      cover(cells, origin.x + dorsalX * lift, origin.y + dorsalY * lift, len * 0.02 * u, s, 1, pitch, () => 0.75)
     }
     if (s > 0.18 && s < 0.42) {
       const u = Math.sin(((s - 0.18) / 0.24) * Math.PI)
-      const reach = half + len * 0.03 * u
-      const swept = len * 0.09 * u
+      const reach = half + len * 0.045 * u
+      const swept = len * 0.11 * u
       cover(
         cells,
         origin.x - dorsalX * reach + tailX * swept,
         origin.y - dorsalY * reach + tailY * swept,
-        len * 0.048 * u,
+        len * 0.075 * u,
         s,
         1,
         pitch,
@@ -245,8 +245,8 @@ function paintFish(ctx: CanvasRenderingContext2D, fish: Fish, grid: Grid, theme:
     const u = i / tailSteps
     const s = 0.78 + u * 0.24
     const { origin, dorsalX, dorsalY } = frameAt(fish, s, len)
-    const spread = len * u * 0.11
-    const rad = len * (0.042 - u * 0.006)
+    const spread = len * u * 0.16
+    const rad = len * (0.072 - u * 0.02)
     cover(cells, origin.x + dorsalX * spread, origin.y + dorsalY * spread, rad, s, 2, pitch, () => 0.9)
     cover(cells, origin.x - dorsalX * spread, origin.y - dorsalY * spread, rad, s, 2, pitch, () => -0.9)
   }
