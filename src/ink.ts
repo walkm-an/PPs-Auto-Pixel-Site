@@ -1,6 +1,6 @@
 import { PAGE_BG, tigaPack } from './generated/tiga-pack'
-import { cellAt, type Grid, type Point } from './grid'
-import type { Variety, World } from './pond'
+import type { Grid, Point } from './grid'
+import type { Fish, Variety, World } from './pond'
 
 export type Theme = keyof typeof PAGE_BG
 
@@ -9,249 +9,268 @@ export const ACCENT: Readonly<Record<Theme, string>> = {
   dark: tigaPack.accentOnDark,
 }
 
-type Role = 'w' | 'r' | 'k' | 'f' | 't'
-type Pigment = 'white' | 'red' | 'black' | 'orange'
+type Pigment = 'white' | 'red' | 'orange' | 'black' | 'fin'
 
-const PIGMENT: Readonly<Record<Theme, Readonly<Record<Pigment, string>>>> = {
-  dark: { white: '#f0ebe0', red: '#e5533d', black: '#8d867c', orange: '#f08a24' },
-  light: { white: '#736c62', red: '#c43820', black: '#2c2824', orange: '#a8560c' },
+const INK: Readonly<Record<Theme, Readonly<Record<Pigment, readonly [number, number, number][]>>>> = {
+  dark: {
+    white: [
+      [238, 232, 222],
+      [176, 168, 156],
+      [118, 112, 102],
+    ],
+    red: [
+      [214, 78, 46],
+      [168, 48, 32],
+      [118, 34, 24],
+    ],
+    orange: [
+      [232, 156, 64],
+      [196, 108, 36],
+      [142, 72, 26],
+    ],
+    black: [
+      [154, 146, 136],
+      [98, 92, 84],
+      [64, 60, 54],
+    ],
+    fin: [
+      [168, 160, 150],
+      [112, 106, 98],
+      [72, 68, 62],
+    ],
+  },
+  light: {
+    white: [
+      [214, 206, 192],
+      [176, 166, 150],
+      [138, 128, 114],
+    ],
+    red: [
+      [186, 54, 34],
+      [150, 36, 22],
+      [110, 26, 16],
+    ],
+    orange: [
+      [204, 112, 36],
+      [168, 78, 22],
+      [124, 54, 16],
+    ],
+    black: [
+      [54, 46, 40],
+      [34, 28, 24],
+      [20, 16, 14],
+    ],
+    fin: [
+      [156, 146, 132],
+      [120, 110, 98],
+      [86, 78, 68],
+    ],
+  },
 }
 
-const GHOST_INK: Readonly<Record<Theme, string>> = { dark: '#a39d91', light: '#6f685c' }
-
-const ART: Readonly<Record<Variety, Readonly<Record<Role, Pigment>> | 'outline'>> = {
-  kohaku: { w: 'white', r: 'red', k: 'white', f: 'white', t: 'white' },
-  showa: { w: 'white', r: 'red', k: 'black', f: 'black', t: 'white' },
-  ogon: { w: 'orange', r: 'white', k: 'orange', f: 'white', t: 'white' },
-  ghost: 'outline',
+const BG: Readonly<Record<Theme, readonly [number, number, number]>> = {
+  dark: [20, 19, 17],
+  light: [243, 241, 234],
 }
 
-interface KoiCell {
-  readonly x: number
-  readonly y: number
-  readonly glyph: string
-  readonly role: Role
-  readonly edge: boolean
+const RIPPLE: Readonly<Record<Theme, readonly [number, number, number]>> = {
+  dark: [188, 182, 172],
+  light: [92, 84, 74],
 }
 
-interface KoiMap {
-  readonly w: number
-  readonly h: number
-  readonly head: Point
-  readonly cells: readonly KoiCell[]
+const EYE: Readonly<Record<Theme, readonly [number, number, number]>> = {
+  dark: [32, 28, 26],
+  light: [28, 24, 22],
 }
-
-const EAST = koi(
-  String.raw`
-    .........\......
-    \.........\.....
-    .\...%%@@@@@#...
-    ..--%@@@@@@@@@#.
-    ..--%@@@@@@@@@#.
-    ./...%%@@@@@#...
-    /........./.....
-    ........./......
-  `,
-  `
-    .........f......
-    t.........f.....
-    .t...wkrrwwrr...
-    ..ffwwrrrkwrrrw.
-    ..ffwkwrwkkwrrw.
-    .t...wwkwwrww...
-    t.........f.....
-    .........f......
-  `,
-  { x: 14, y: 3 },
-)
-
-const SOUTH_EAST = koi(
-  String.raw`
-    ...|........
-    ...|........
-    ..%%........
-    --%%@@......
-    ...%@@@.....
-    ...@@@@@.|..
-    ....@@@@@|..
-    .....@@@@@..
-    ......@@@@#.
-    .....--@@@#.
-    ........@###
-    ..........##
-  `,
-  `
-    ...t........
-    ...t........
-    ..ff........
-    ttfwkw......
-    ...wwrw.....
-    ...wrrkw.f..
-    ....wrrwwf..
-    .....wkwrw..
-    ......wwrrr.
-    .....ffwrrr.
-    ........rrrw
-    ..........rw
-  `,
-  { x: 11, y: 11 },
-)
-
-const TURNED: Readonly<Record<string, string>> = { '/': '\\', '\\': '/', '-': '|', '|': '-' }
-
-const POSES = [0, 1, 2, 3].flatMap((quarter) => [spin(EAST, quarter), spin(SOUTH_EAST, quarter)])
-
-function koi(glyphs: string, paint: string, head: Point): KoiMap {
-  const rows = (art: string) => art.trim().split('\n').map((line) => line.trim())
-  const g = rows(glyphs)
-  const p = rows(paint)
-  const filled = (x: number, y: number) => (g[y]?.[x] ?? '.') !== '.'
-  const body = (x: number, y: number) => filled(x, y) && 'wrk'.includes(p[y]?.[x] ?? '.')
-  const cells: KoiCell[] = []
-  g.forEach((line, y) => {
-    for (let x = 0; x < line.length; x++) {
-      if (!filled(x, y)) continue
-      const role = p[y]?.[x] ?? '.'
-      if (!'wrkft'.includes(role)) throw new Error(`koi paint is missing at ${x},${y}`)
-      const edge = !body(x, y) || !body(x - 1, y) || !body(x + 1, y) || !body(x, y - 1) || !body(x, y + 1)
-      cells.push({ x, y, glyph: line[x], role: role as Role, edge })
-    }
-  })
-  return { w: g[0].length, h: g.length, head, cells }
-}
-
-function spin(map: KoiMap, quarters: number): KoiMap {
-  let m = map
-  for (let i = 0; i < quarters; i++) {
-    const h = m.h
-    m = {
-      w: m.h,
-      h: m.w,
-      head: { x: h - 1 - m.head.y, y: m.head.x },
-      cells: m.cells.map((c) => ({ ...c, x: h - 1 - c.y, y: c.x, glyph: TURNED[c.glyph] ?? c.glyph })),
-    }
-  }
-  return m
-}
-
-const poseOf = (heading: number) => (Math.round(heading / (Math.PI / 4)) + 8) % 8
 
 interface Mark {
-  readonly x: number
-  readonly y: number
-  readonly glyph: string
-  readonly color: string
+  readonly s: number
+  readonly n: number
+  readonly rim: number
+  readonly layer: number
 }
 
-interface Stamp {
-  readonly image: OffscreenCanvas
-  readonly anchor: Point
-  readonly w: number
-  readonly h: number
+const groups = new Map<string, number[]>()
+
+const depthOf = (id: number) => ((id * 17) % 5) / 4
+
+const hash = (id: number, k: number) => {
+  const x = Math.sin(id * 127.1 + k * 311.7) * 43758.5453
+  return x - Math.floor(x)
 }
 
-interface Atlas {
-  readonly cell: number
-  readonly dpr: number
-  readonly theme: Theme
-  readonly fontReady: boolean
-  readonly koi: Map<string, Stamp>
-  readonly food: Stamp
-  readonly rings: readonly Stamp[]
+function profile(s: number): number {
+  if (s < 0 || s > 1) return 0
+  if (s < 0.1) return 0.045 + s
+  if (s < 0.42) return 0.145 + (s - 0.1) * 0.05
+  if (s < 0.74) return 0.161 - (s - 0.42) * 0.24
+  return 0.084 + ((s - 0.74) / 0.26) * 0.055
 }
 
-const monoReady = (cell: number) =>
-  typeof document !== 'undefined' && document.fonts.check(`${cell}px "Geist Mono"`)
-
-let atlas: Atlas | null = null
-
-function atlasFor(grid: Grid, theme: Theme): Atlas {
-  const fontReady = monoReady(grid.cell)
-  if (atlas && atlas.cell === grid.cell && atlas.dpr === grid.dpr && atlas.theme === theme && atlas.fontReady === fontReady) {
-    return atlas
+function pigmentOf(variety: Variety, s: number, n: number, id: number): Pigment {
+  if (variety === 'ghost') return 'fin'
+  if (variety === 'ogon') {
+    if (n < -0.2) return 'white'
+    return blot(id, s, n, 2) ? 'white' : 'orange'
   }
-  const { cell, dpr } = grid
-  const accent = ACCENT[theme]
-  atlas = {
-    cell,
-    dpr,
-    theme,
-    fontReady,
-    koi: new Map(),
-    food: stamp(1, 1, { x: 0, y: 0 }, [{ x: 0, y: 0, glyph: 'o', color: accent }], cell, dpr),
-    rings: [1, 2, 3].map((radius) => ring(radius, accent, cell, dpr)),
+  if (variety === 'showa') {
+    if (s < 0.15 && n > -0.2) return 'black'
+    if (blot(id, s, n, 4)) return 'black'
+    if (blot(id, s, n, 6)) return 'red'
+    return 'white'
   }
-  return atlas
+  if (s < 0.14 && n > 0.05 && hash(id, 1) > 0.35) return 'red'
+  if (blot(id, s, n, 8) || blot(id, s, n, 10)) return 'red'
+  return 'white'
 }
 
-function koiStamp(a: Atlas, variety: Variety, pose: number, wag: 0 | 1): Stamp {
-  const key = `${variety}${pose}${wag}`
-  const cached = a.koi.get(key)
-  if (cached) return cached
-  const map = POSES[pose]
-  const art = ART[variety]
-  const marks = map.cells
-    .filter((c) => !(wag === 1 && c.role === 't') && (art !== 'outline' || c.edge))
-    .map((c) => ({
-      x: c.x,
-      y: c.y,
-      glyph: c.glyph,
-      color: art === 'outline' ? GHOST_INK[a.theme] : PIGMENT[a.theme][art[c.role]],
-    }))
-  const made = stamp(map.w, map.h, map.head, marks, a.cell, a.dpr)
-  a.koi.set(key, made)
-  return made
+function blot(id: number, s: number, n: number, k: number): boolean {
+  const cs = 0.22 + (k % 5) * 0.1 + hash(id, k) * 0.08
+  const cn = (hash(id, k + 3) - 0.5) * 0.7
+  const ds = (s - cs) / (0.1 + hash(id, k + 5) * 0.05)
+  const dn = (n - cn) / (0.42 + hash(id, k + 7) * 0.2)
+  return ds * ds + dn * dn < 1
 }
 
-function ring(radius: number, color: string, cell: number, dpr: number): Stamp {
-  const size = radius * 2 + 1
-  const marks: Mark[] = []
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      if (Math.abs(Math.hypot(x - radius, y - radius) - radius) < 0.5) marks.push({ x, y, glyph: '.', color })
+function rgbOf(theme: Theme, pigment: Pigment, shade: number, depth: number, fin: boolean): string {
+  const row = INK[theme][pigment]
+  const rgb = row[Math.min(row.length - 1, shade)]
+  const bg = BG[theme]
+  const fade = (1 - depth) * 0.42
+  const r = Math.round(rgb[0] + (bg[0] - rgb[0]) * fade)
+  const g = Math.round(rgb[1] + (bg[1] - rgb[1]) * fade)
+  const b = Math.round(rgb[2] + (bg[2] - rgb[2]) * fade)
+  if (fin) return `rgba(${r},${g},${b},0.62)`
+  return `rgb(${r},${g},${b})`
+}
+
+function spine(fish: Fish, s: number, len: number): Point {
+  const hx = Math.cos(fish.heading)
+  const hy = Math.sin(fish.heading)
+  const wag = Math.sin(s * 3.1 - fish.wag * Math.PI * 2) * s * s
+  const arc = Math.sin(s * Math.PI) * Math.sin(fish.id * 1.3)
+  const lat = len * (0.34 * arc + 0.22 * wag)
+  const along = (0.4 - s) * len
+  return {
+    x: fish.pos.x + hx * along - hy * lat,
+    y: fish.pos.y + hy * along + hx * lat,
+  }
+}
+
+function paintFish(ctx: CanvasRenderingContext2D, fish: Fish, grid: Grid, theme: Theme, pitch: number) {
+  const depth = depthOf(fish.id)
+  const len = grid.width * (0.16 + depth * 0.09)
+  const cells = new Map<string, Mark>()
+  const steps = Math.max(16, Math.round(len / (pitch * 0.45)))
+  const backX = -Math.sin(fish.heading)
+  const backY = Math.cos(fish.heading)
+  for (let i = 0; i <= steps; i++) {
+    const s = (i / steps) * 1.12
+    const origin = spine(fish, s, len)
+    const half = profile(s) * len
+    if (half < pitch * 0.35) continue
+    const dorsal = s > 0.3 && s < 0.62 ? half * 0.42 * Math.sin(((s - 0.3) / 0.32) * Math.PI) : 0
+    const pectoral = s > 0.16 && s < 0.34 ? half * 0.55 * Math.sin(((s - 0.16) / 0.18) * Math.PI) : 0
+    const reach = half + Math.max(dorsal, pectoral)
+    const x0 = Math.floor((origin.x - reach) / pitch)
+    const x1 = Math.ceil((origin.x + reach) / pitch)
+    const y0 = Math.floor((origin.y - reach) / pitch)
+    const y1 = Math.ceil((origin.y + reach) / pitch)
+    for (let ix = x0; ix <= x1; ix++) {
+      for (let iy = y0; iy <= y1; iy++) {
+        const x = ix * pitch
+        const y = iy * pitch
+        const dx = x - origin.x
+        const dy = y - origin.y
+        const across = dx * backX + dy * backY
+        const along = Math.hypot(dx, dy)
+        const limit = half + (across > 0 ? dorsal : pectoral)
+        if (along > limit) continue
+        const n = Math.max(-1, Math.min(1, across / Math.max(half, 1)))
+        if (s > 0.9 && Math.abs(n) < 0.14) continue
+        const rim = along / limit
+        const layer = rim > 0.8 || s > 0.78 || (across > 0 && across > half) || (across < 0 && -across > half) ? 1 : 0
+        const mark: Mark = { s, n, rim, layer }
+        const key = `${ix},${iy}`
+        const prev = cells.get(key)
+        if (!prev || mark.layer < prev.layer || (mark.layer === prev.layer && mark.rim < prev.rim)) cells.set(key, mark)
+      }
     }
   }
-  return stamp(size, size, { x: radius, y: radius }, marks, cell, dpr)
-}
-
-function stamp(w: number, h: number, anchor: Point, marks: readonly Mark[], cell: number, dpr: number): Stamp {
-  const image = new OffscreenCanvas(Math.ceil(w * cell * dpr), Math.ceil(h * cell * dpr))
-  const g = image.getContext('2d')
-  if (!g) throw new Error('offscreen 2d context is unavailable')
-  g.scale(dpr, dpr)
-  g.font = `${cell}px "Geist Mono", monospace`
-  g.textAlign = 'center'
-  g.textBaseline = 'middle'
-  for (const m of marks) {
-    g.fillStyle = m.color
-    g.fillText(m.glyph, (m.x + 0.5) * cell, (m.y + 0.5) * cell)
+  const eyeAt = spine(fish, 0.12, len)
+  const eyeX = Math.round((eyeAt.x + backX * profile(0.12) * len * 0.35) / pitch)
+  const eyeY = Math.round((eyeAt.y + backY * profile(0.12) * len * 0.35) / pitch)
+  ctx.globalAlpha = 0.58 + depth * 0.42
+  for (const [key, mark] of cells) {
+    const ghost = fish.variety === 'ghost'
+    const [xs, ys] = key.split(',')
+    const ix = Number(xs)
+    const iy = Number(ys)
+    const fin = mark.layer === 1 || (mark.layer === 2 && mark.rim > 0.5)
+    const shade = mark.rim > 0.78 ? 2 : mark.rim > 0.48 ? 1 : mark.n > 0.35 ? 1 : 0
+    const pigment = fin ? 'fin' : pigmentOf(fish.variety, mark.s, mark.n, fish.id)
+    const eye = ix === eyeX && iy === eyeY && mark.layer === 0
+    const color = eye
+      ? `rgb(${EYE[theme][0]},${EYE[theme][1]},${EYE[theme][2]})`
+      : rgbOf(theme, ghost ? 'fin' : pigment, shade, depth, (fin && !eye) || ghost)
+    const list = groups.get(color)
+    if (list) list.push(ix * pitch, iy * pitch)
+    else groups.set(color, [ix * pitch, iy * pitch])
   }
-  return { image, anchor, w, h }
+  flush(ctx, Math.max(2, pitch - Math.max(1, pitch * 0.18)))
+  ctx.globalAlpha = 1
 }
 
-function blit(ctx: CanvasRenderingContext2D, grid: Grid, s: Stamp, at: Point) {
-  const { col, row } = cellAt(grid, at)
-  ctx.drawImage(
-    s.image,
-    grid.origin.x + (col - s.anchor.x) * grid.cell,
-    grid.origin.y + (row - s.anchor.y) * grid.cell,
-    s.w * grid.cell,
-    s.h * grid.cell,
-  )
+function paintRipple(ctx: CanvasRenderingContext2D, at: Point, age: number, life: number, theme: Theme, pitch: number) {
+  const p = age / life
+  const radius = pitch * (2.2 + p * 7.5)
+  const count = Math.max(14, Math.round((Math.PI * 2 * radius) / (pitch * 1.65)))
+  const [r, g, b] = RIPPLE[theme]
+  ctx.globalAlpha = (1 - p) * 0.72
+  ctx.fillStyle = `rgb(${r},${g},${b})`
+  const size = Math.max(2, pitch - Math.max(1, pitch * 0.18))
+  const half = size / 2
+  ctx.beginPath()
+  for (let i = 0; i < count; i++) {
+    const a = (i / count) * Math.PI * 2
+    const x = Math.round((at.x + Math.cos(a) * radius) / pitch) * pitch
+    const y = Math.round((at.y + Math.sin(a) * radius) / pitch) * pitch
+    ctx.rect(x - half, y - half, size, size)
+  }
+  ctx.fill()
+  ctx.globalAlpha = 1
+}
+
+function paintFood(ctx: CanvasRenderingContext2D, at: Point, theme: Theme, pitch: number) {
+  const size = Math.max(2, pitch - Math.max(1, pitch * 0.18))
+  const x = Math.round(at.x / pitch) * pitch
+  const y = Math.round(at.y / pitch) * pitch
+  ctx.globalAlpha = 1
+  ctx.fillStyle = ACCENT[theme]
+  ctx.fillRect(x - size / 2, y - size / 2, size, size)
+}
+
+function flush(ctx: CanvasRenderingContext2D, size: number) {
+  const half = size / 2
+  for (const [color, list] of groups) {
+    if (list.length === 0) continue
+    ctx.fillStyle = color
+    ctx.beginPath()
+    for (let i = 0; i < list.length; i += 2) ctx.rect(list[i] - half, list[i + 1] - half, size, size)
+    ctx.fill()
+    list.length = 0
+  }
 }
 
 export function paintPond(ctx: CanvasRenderingContext2D, grid: Grid, world: World, theme: Theme): void {
-  const a = atlasFor(grid, theme)
+  const pitch = Math.max(6, Math.round(grid.width / 96))
   ctx.setTransform(grid.dpr, 0, 0, grid.dpr, 0, 0)
   ctx.globalAlpha = 1
   ctx.fillStyle = PAGE_BG[theme]
   ctx.fillRect(0, 0, grid.width, grid.height)
-  for (const r of world.ripples) {
-    const progress = r.age / r.life
-    ctx.globalAlpha = 1 - progress
-    blit(ctx, grid, a.rings[Math.min(a.rings.length - 1, Math.floor(progress * a.rings.length))], r.at)
-  }
-  ctx.globalAlpha = 1
-  for (const f of world.food) blit(ctx, grid, a.food, f.at)
-  for (const f of world.fish) blit(ctx, grid, koiStamp(a, f.variety, poseOf(f.heading), f.wag < 0.5 ? 0 : 1), f.pos)
+  for (const ripple of world.ripples) paintRipple(ctx, ripple.at, ripple.age, ripple.life, theme, pitch)
+  const order = world.fish.map((fish, index) => index)
+  order.sort((a, b) => depthOf(world.fish[a].id) - depthOf(world.fish[b].id))
+  for (const index of order) paintFish(ctx, world.fish[index], grid, theme, pitch)
+  for (const food of world.food) paintFood(ctx, food.at, theme, pitch)
 }

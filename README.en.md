@@ -2,7 +2,7 @@
 
 # Koi pond
 
-This repository is a static site. A colored ASCII portrait of Ultraman Tiga assembles from the center of the screen. After 1.8 seconds the view becomes an ASCII koi pond. A calm click on the water counts one feed. A fast pointer makes nearby fish scatter.
+This repository is a static site. A colored ASCII portrait of Ultraman Tiga assembles from the center of the screen. After 1.8 seconds the view becomes a dot-matrix koi pond. A calm click on the water counts one feed. A fast pointer makes nearby fish scatter.
 
 The Tiga portrait was supplied by a visitor for personal display on this page. It is not official Ultraman merchandise. [daoho.dev](https://daoho.dev) is the visual reference for the pond. The code, the glyphs, and the colors were written for this site.
 
