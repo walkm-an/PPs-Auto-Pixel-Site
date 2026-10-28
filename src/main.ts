@@ -4,10 +4,10 @@ import { PAGE_BG } from './generated/tiga-pack'
 import { gridMetrics, type Rect } from './grid'
 import { ACCENT, paintPond, type Theme } from './ink'
 import { createWorld, frameDt, stepWorld, type Device, type PondEnv, type PondInput, type World } from './pond'
-import { paintPortrait, revealAt, type Reveal } from './portrait'
+import { paintPortrait, pausePortrait, portraitElapsed, resumePortrait, revealAt, type PortraitClock, type Reveal } from './portrait'
 
 type Phase =
-  | { readonly kind: 'portrait'; readonly startedAt: number; readonly reveal: Reveal | null }
+  | { readonly kind: 'portrait'; readonly reveal: Reveal | null }
   | { readonly kind: 'pond'; readonly world: World }
 
 const FEEDS_KEY = 'feeds'
@@ -21,7 +21,8 @@ const ctx = canvas.getContext('2d') ?? fail('canvas 2d context is unavailable')
 const darkScheme = matchMedia('(prefers-color-scheme: dark)')
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)')
 
-let phase: Phase = { kind: 'portrait', startedAt: performance.now(), reveal: null }
+let phase: Phase = { kind: 'portrait', reveal: null }
+let portraitClock: PortraitClock = { elapsed: 0, mark: null }
 let env = fit()
 let feeds = readFeeds()
 let inputs: PondInput[] = []
@@ -92,10 +93,12 @@ function addFeeds(n: number) {
 const live = () => !document.hidden && onScreen
 
 function wake() {
+  if (phase.kind === 'portrait') portraitClock = live() ? resumePortrait(portraitClock, performance.now()) : pausePortrait(portraitClock, performance.now())
   if (!raf && live()) raf = requestAnimationFrame(frame)
 }
 
 function sleep() {
+  if (phase.kind === 'portrait') portraitClock = pausePortrait(portraitClock, performance.now())
   cancelAnimationFrame(raf)
   raf = 0
   lastMs = null
@@ -114,7 +117,7 @@ function frame(now: number) {
   lastMs = now
   const t = theme()
   if (phase.kind === 'portrait') {
-    const reveal = revealAt(phase.reveal, env.grid, now - phase.startedAt, env.motion, t)
+    const reveal = revealAt(phase.reveal, env.grid, portraitElapsed(portraitClock, now), env.motion, t)
     paintPortrait(ctx, phase.reveal, reveal)
     phase = { ...phase, reveal }
     if (reveal.done) enterPond()

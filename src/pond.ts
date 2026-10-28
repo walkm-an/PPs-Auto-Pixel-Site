@@ -162,6 +162,8 @@ export function stepWorld(
       else uneaten.push(f)
     }
     food = uneaten
+  } else {
+    fish = fitStill(fish, env)
   }
 
   return {
@@ -325,6 +327,36 @@ function repel(p: Point, env: PondEnv): Point {
 }
 
 const wall = (gap: number, margin: number) => (gap < margin ? 2 * (1 - Math.max(0, gap) / margin) : 0)
+
+function fitStill(fish: readonly Fish[], env: PondEnv): Fish[] {
+  const w = waterOf(env.grid)
+  const inside = (p: Point) => p.x >= w.x0 && p.x <= w.x1 && p.y >= w.y0 && p.y <= w.y1
+  if (fish.every((f) => inside(f.pos))) return fish.map((f) => ({ ...f, pos: escape(f.pos, env) }))
+  let minX = Infinity
+  let maxX = -Infinity
+  let minY = Infinity
+  let maxY = -Infinity
+  for (const f of fish) {
+    minX = Math.min(minX, f.pos.x)
+    maxX = Math.max(maxX, f.pos.x)
+    minY = Math.min(minY, f.pos.y)
+    maxY = Math.max(maxY, f.pos.y)
+  }
+  const spanX = maxX - minX || 1
+  const spanY = maxY - minY || 1
+  const width = w.x1 - w.x0
+  const height = w.y1 - w.y0
+  return fish.map((f) => ({
+    ...f,
+    pos: escape(
+      {
+        x: w.x0 + ((f.pos.x - minX) / spanX) * width,
+        y: w.y0 + ((f.pos.y - minY) / spanY) * height,
+      },
+      env,
+    ),
+  }))
+}
 
 function escape(p: Point, env: PondEnv): Point {
   const w = waterOf(env.grid)

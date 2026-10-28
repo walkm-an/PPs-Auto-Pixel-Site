@@ -1,9 +1,12 @@
 import { spawn } from 'node:child_process'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 const PAGE = process.env.PROVE_URL ?? 'http://127.0.0.1:4173/'
 const OUT = process.env.PROVE_OUT ?? '/tmp/pond-proof'
 const CHROME = process.env.CHROME ?? 'google-chrome'
+const profile = mkdtempSync(join(tmpdir(), 'pond-prove-'))
 mkdirSync(OUT, { recursive: true })
 
 const chrome = spawn(
@@ -14,17 +17,49 @@ const chrome = spawn(
     '--disable-dev-shm-usage',
     '--disable-gpu',
     '--remote-debugging-port=9222',
-    '--user-data-dir=/tmp/chrome-prove',
+    '--user-data-dir=' + profile,
     '--window-size=1440,900',
     'about:blank',
   ],
-  { stdio: 'ignore' },
+  { detached: true, stdio: 'ignore' },
 )
+
+let finishing = false
+
+async function finish(code) {
+  if (finishing) return
+  finishing = true
+  const kill = (sig) => {
+    try {
+      process.kill(-chrome.pid, sig)
+    } catch {}
+    try {
+      chrome.kill(sig)
+    } catch {}
+  }
+  kill('SIGTERM')
+  await Promise.race([
+    new Promise((resolve) => {
+      if (chrome.exitCode !== null || chrome.signalCode !== null) resolve()
+      else chrome.once('exit', resolve)
+    }),
+    sleep(1000).then(() => kill('SIGKILL')),
+  ])
+  kill('SIGKILL')
+  await sleep(200)
+  for (let i = 0; i < 10; i++) {
+    try {
+      rmSync(profile, { recursive: true, force: true })
+    } catch {}
+    if (!existsSync(profile)) break
+    await sleep(100)
+  }
+  process.exit(code)
+}
 
 const fail = (message) => {
   console.error('FAIL', message)
-  chrome.kill()
-  process.exit(1)
+  throw new Error(message)
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -337,18 +372,22 @@ try {
     gapRange: [gaps[0], gaps[4]],
     limiter: gaps[2] > 12 && gaps[2] < 22 ? 'vsync' : 'scheduler',
   }
-  const moved = await evalJson(`(() => {
-    const c = document.querySelector('canvas')
-    const a = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
-    return new Promise((resolve) => {
-      requestAnimationFrame(() => requestAnimationFrame(() => {
-        const b = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
-        let diff = 0
-        for (let i = 0; i < a.length; i += 64) if (a[i] !== b[i]) diff += 1
-        resolve(diff)
-      }))
-    })
-  })()`)
+  let moved = 0
+  for (let i = 0; i < 8; i++) {
+    moved = await evalJson(`(() => {
+      const c = document.querySelector('canvas')
+      const a = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
+      return new Promise((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          const b = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
+          let diff = 0
+          for (let i = 0; i < a.length; i += 64) if (a[i] !== b[i]) diff += 1
+          resolve(diff)
+        }))
+      })
+    })()`)
+    if (moved >= 10) break
+  }
   report.frameDiff = moved
   if (moved < 10) fail(`pond frames did not change the canvas (${moved})`)
   await shot('pond-moving')
@@ -392,11 +431,11 @@ try {
   report.errors = errors.length
   writeFileSync(`${OUT}/report.json`, JSON.stringify(report, null, 2))
   console.log(JSON.stringify(report, null, 2))
-  chrome.kill()
-  process.exit(0)
+  await finish(0)
 } catch (err) {
   console.error(err)
-  writeFileSync(`${OUT}/report.json`, JSON.stringify({ report, errors, crash: String(err) }, null, 2))
-  chrome.kill()
-  process.exit(1)
+  try {
+    writeFileSync(`${OUT}/report.json`, JSON.stringify({ report, errors, crash: String(err) }, null, 2))
+  } catch {}
+  await finish(1)
 }

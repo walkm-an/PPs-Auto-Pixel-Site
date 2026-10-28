@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { gridMetrics, sameGrid, type Grid, type Point, type Rect } from './grid'
 import { createWorld, frameDt, stepWorld, type Device, type Motion, type PondEnv, type PondInput } from './pond'
-import { placePortrait, revealAt } from './portrait'
+import { pausePortrait, placePortrait, portraitElapsed, resumePortrait, revealAt } from './portrait'
 
 const desktop = gridMetrics({ width: 1200, height: 800, dpr: 1 })
 const phone = gridMetrics({ width: 390, height: 844, dpr: 3 })
@@ -131,6 +131,31 @@ describe('stepWorld', () => {
     expect(Number(frameDt(null, 60000))).toBe(0)
   })
 
+  it('keeps every still fish inside the grid after the pond shrinks', () => {
+    const wide = pond(desktop, [], 'still')
+    const narrow = pond(phone, [], 'still')
+    const world = createWorld(wide, 3)
+    const bounds = {
+      x0: phone.origin.x,
+      y0: phone.origin.y,
+      x1: phone.origin.x + phone.cols * phone.cell,
+      y1: phone.origin.y + phone.rows * phone.cell,
+    }
+    const outside = world.fish.filter((f) => f.pos.x < bounds.x0 || f.pos.x > bounds.x1 || f.pos.y < bounds.y0 || f.pos.y > bounds.y1)
+    expect(outside.length).toBeGreaterThan(0)
+    const shrunk = stepWorld(world, narrow, [], noTime).world
+    expect(shrunk.fish.length).toBeGreaterThan(0)
+    for (const fish of shrunk.fish) {
+      expect(fish.pos.x).toBeGreaterThanOrEqual(bounds.x0)
+      expect(fish.pos.x).toBeLessThanOrEqual(bounds.x1)
+      expect(fish.pos.y).toBeGreaterThanOrEqual(bounds.y0)
+      expect(fish.pos.y).toBeLessThanOrEqual(bounds.y1)
+    }
+    const columns = new Set(shrunk.fish.map((f) => Math.floor((f.pos.x - bounds.x0) / phone.cell)))
+    expect(columns.size).toBeGreaterThan(1)
+    expect(positions(stepWorld(shrunk, narrow, [], noTime).world.fish)).toEqual(positions(shrunk.fish))
+  })
+
   it('holds a still pond in place and still feeds on a calm tap', () => {
     const env = pond(desktop, [], 'still')
     const world = createWorld(env, 3)
@@ -149,6 +174,19 @@ describe('revealAt', () => {
     expect(first.done).toBe(false)
     expect(revealAt(first, desktop, 1799, 'still', 'dark').done).toBe(false)
     expect(revealAt(first, desktop, 1800, 'still', 'dark').done).toBe(true)
+  })
+
+  it('does not advance the portrait while the clock is paused', () => {
+    const running = resumePortrait({ elapsed: 0, mark: null }, 1000)
+    const shown = revealAt(null, desktop, portraitElapsed(running, 1500), 'full', 'dark')
+    const paused = pausePortrait(running, 1500)
+    expect(portraitElapsed(paused, 9000)).toBe(portraitElapsed(running, 1500))
+    const held = revealAt(shown, desktop, portraitElapsed(paused, 9000), 'full', 'dark')
+    expect(held.painted).toBe(shown.painted)
+    expect(held.done).toBe(false)
+    const resumed = resumePortrait(paused, 9000)
+    expect(portraitElapsed(resumed, 9200)).toBe(portraitElapsed(running, 1500) + 200)
+    expect(revealAt(held, desktop, portraitElapsed(resumed, 9200), 'full', 'dark').painted).toBeGreaterThan(held.painted)
   })
 
   it('reveals a moving portrait from the center outward', () => {

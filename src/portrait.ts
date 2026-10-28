@@ -18,6 +18,25 @@ export interface Reveal {
   readonly done: boolean
 }
 
+export interface PortraitClock {
+  readonly elapsed: number
+  readonly mark: number | null
+}
+
+export function resumePortrait(clock: PortraitClock, now: number): PortraitClock {
+  if (clock.mark !== null) return clock
+  return { elapsed: clock.elapsed, mark: now }
+}
+
+export function pausePortrait(clock: PortraitClock, now: number): PortraitClock {
+  if (clock.mark === null) return clock
+  return { elapsed: clock.elapsed + (now - clock.mark), mark: null }
+}
+
+export function portraitElapsed(clock: PortraitClock, now: number): number {
+  return clock.mark === null ? clock.elapsed : clock.elapsed + (now - clock.mark)
+}
+
 const REVEAL_MS = 1800
 const SOURCE = Uint8Array.from(atob(tigaPack.cells), (c) => c.charCodeAt(0))
 
