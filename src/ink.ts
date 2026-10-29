@@ -207,37 +207,67 @@ function frameAt(fish: Fish, s: number, len: number) {
   return { origin, tailX, tailY, dorsalX: tailY, dorsalY: -tailX }
 }
 
-function paintFish(ctx: CanvasRenderingContext2D, fish: Fish, grid: Grid, theme: Theme, pitch: number) {
-  const depth = depthOf(fish.id)
-  const len = grid.width * (0.16 + depth * 0.045)
-  const cells = new Map<string, Mark>()
+const inkOf = (pitch: number) => Math.max(2, pitch - 1)
+
+export function fishLen(fish: Fish, grid: Grid): number {
+  return grid.width * (0.16 + depthOf(fish.id) * 0.045)
+}
+
+export function inkPitch(grid: Grid): number {
+  return Math.max(4, Math.round(grid.width / 213))
+}
+
+export function inkBleed(grid: Grid): number {
+  return inkOf(inkPitch(grid)) / 2
+}
+
+export function fishHead(fish: Fish, grid: Grid): Point {
+  return spine(fish, 0, fishLen(fish, grid))
+}
+
+interface Blot {
+  readonly x: number
+  readonly y: number
+  readonly r: number
+  readonly s: number
+  readonly layer: number
+  readonly across: (x: number, y: number) => number
+}
+
+function collectBlots(fish: Fish, len: number, pitch: number): Blot[] {
+  const blots: Blot[] = []
   const steps = Math.max(18, Math.round(len / (pitch * 0.7)))
   for (let i = 0; i <= steps; i++) {
     const s = (i / steps) * 0.82
     const { origin, tailX, tailY, dorsalX, dorsalY } = frameAt(fish, s, len)
     const half = profile(s) * len
-    const acrossOf = (x: number, y: number) =>
+    const across = (x: number, y: number) =>
       ((x - origin.x) * dorsalX + (y - origin.y) * dorsalY) / Math.max(half, 1)
-    cover(cells, origin.x, origin.y, half, s, 0, pitch, acrossOf)
+    blots.push({ x: origin.x, y: origin.y, r: half, s, layer: 0, across })
     if (s > 0.34 && s < 0.58) {
       const u = Math.sin(((s - 0.34) / 0.24) * Math.PI)
       const lift = half + len * 0.012 * u
-      cover(cells, origin.x + dorsalX * lift, origin.y + dorsalY * lift, len * 0.02 * u, s, 1, pitch, () => 0.75)
+      blots.push({
+        x: origin.x + dorsalX * lift,
+        y: origin.y + dorsalY * lift,
+        r: len * 0.02 * u,
+        s,
+        layer: 1,
+        across: () => 0.75,
+      })
     }
     if (s > 0.18 && s < 0.42) {
       const u = Math.sin(((s - 0.18) / 0.24) * Math.PI)
       const reach = half + len * 0.045 * u
       const swept = len * 0.11 * u
-      cover(
-        cells,
-        origin.x - dorsalX * reach + tailX * swept,
-        origin.y - dorsalY * reach + tailY * swept,
-        len * 0.075 * u,
+      blots.push({
+        x: origin.x - dorsalX * reach + tailX * swept,
+        y: origin.y - dorsalY * reach + tailY * swept,
+        r: len * 0.075 * u,
         s,
-        1,
-        pitch,
-        () => -0.7,
-      )
+        layer: 1,
+        across: () => -0.7,
+      })
     }
   }
   const tailSteps = Math.max(8, Math.round((len * 0.22) / pitch))
@@ -247,9 +277,59 @@ function paintFish(ctx: CanvasRenderingContext2D, fish: Fish, grid: Grid, theme:
     const { origin, dorsalX, dorsalY } = frameAt(fish, s, len)
     const spread = len * u * 0.16
     const rad = len * (0.072 - u * 0.02)
-    cover(cells, origin.x + dorsalX * spread, origin.y + dorsalY * spread, rad, s, 2, pitch, () => 0.9)
-    cover(cells, origin.x - dorsalX * spread, origin.y - dorsalY * spread, rad, s, 2, pitch, () => -0.9)
+    blots.push({
+      x: origin.x + dorsalX * spread,
+      y: origin.y + dorsalY * spread,
+      r: rad,
+      s,
+      layer: 2,
+      across: () => 0.9,
+    })
+    blots.push({
+      x: origin.x - dorsalX * spread,
+      y: origin.y - dorsalY * spread,
+      r: rad,
+      s,
+      layer: 2,
+      across: () => -0.9,
+    })
   }
+  return blots
+}
+
+function raster(fish: Fish, grid: Grid, pitch: number): Map<string, Mark> {
+  const cells = new Map<string, Mark>()
+  for (const blot of collectBlots(fish, fishLen(fish, grid), pitch)) {
+    cover(cells, blot.x, blot.y, blot.r, blot.s, blot.layer, pitch, blot.across)
+  }
+  return cells
+}
+
+export function fishBody(fish: Fish, grid: Grid): readonly { readonly x: number; readonly y: number; readonly r: number }[] {
+  const pitch = inkPitch(grid)
+  const min = pitch * 0.28
+  const body: { x: number; y: number; r: number }[] = []
+  for (const blot of collectBlots(fish, fishLen(fish, grid), pitch)) {
+    if (blot.r >= min) body.push({ x: blot.x, y: blot.y, r: blot.r })
+  }
+  return body
+}
+
+export function fishInk(fish: Fish, grid: Grid): readonly { readonly x: number; readonly y: number; readonly w: number; readonly h: number }[] {
+  const pitch = inkPitch(grid)
+  const size = inkOf(pitch)
+  const ink: { x: number; y: number; w: number; h: number }[] = []
+  for (const key of raster(fish, grid, pitch).keys()) {
+    const [xs, ys] = key.split(',')
+    ink.push({ x: Number(xs) * pitch, y: Number(ys) * pitch, w: size, h: size })
+  }
+  return ink
+}
+
+function paintFish(ctx: CanvasRenderingContext2D, fish: Fish, grid: Grid, theme: Theme, pitch: number) {
+  const depth = depthOf(fish.id)
+  const len = fishLen(fish, grid)
+  const cells = raster(fish, grid, pitch)
   const eye = frameAt(fish, 0.1, len)
   const eyeX = Math.round((eye.origin.x + eye.dorsalX * profile(0.1) * len * 0.42) / pitch)
   const eyeY = Math.round((eye.origin.y + eye.dorsalY * profile(0.1) * len * 0.42) / pitch)
@@ -298,8 +378,6 @@ function paintRipple(ctx: CanvasRenderingContext2D, at: Point, age: number, life
   ctx.globalAlpha = 1
 }
 
-const inkOf = (pitch: number) => Math.max(2, pitch - 1)
-
 function paintFood(ctx: CanvasRenderingContext2D, at: Point, theme: Theme, pitch: number) {
   const size = inkOf(pitch)
   const x = Math.floor(at.x / pitch) * pitch
@@ -321,7 +399,7 @@ function flush(ctx: CanvasRenderingContext2D, size: number) {
 }
 
 export function paintPond(ctx: CanvasRenderingContext2D, grid: Grid, world: World, theme: Theme): void {
-  const pitch = Math.max(4, Math.round(grid.width / 213))
+  const pitch = inkPitch(grid)
   ctx.setTransform(grid.dpr, 0, 0, grid.dpr, 0, 0)
   ctx.globalAlpha = 1
   ctx.fillStyle = PAGE_BG[theme]
