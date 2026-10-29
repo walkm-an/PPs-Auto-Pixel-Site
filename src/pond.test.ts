@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { gridMetrics, sameGrid, type Grid, type Point, type Rect } from './grid'
-import { createWorld, frameDt, stepWorld, type Device, type Motion, type PondEnv, type PondInput } from './pond'
+import { fishBody, fishHead, fishInk, inkBleed } from './ink'
+import { createWorld, frameDt, stepWorld, type Device, type Fish, type Motion, type PondEnv, type PondInput } from './pond'
 import { pausePortrait, placePortrait, portraitElapsed, resumePortrait, revealAt } from './portrait'
 
 const desktop = gridMetrics({ width: 1200, height: 800, dpr: 1 })
@@ -17,6 +18,28 @@ const tap = (at: Point, tMs: number, device: Device = 'fine'): PondInput[] => [
   { kind: 'down', at, tMs, device },
   { kind: 'up', at, tMs: tMs + 80, device },
 ]
+
+const overlaps = (a: { x: number; y: number; w: number; h: number }, b: Rect) =>
+  a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y
+
+function inkCovered(fish: Fish, grid: Grid): boolean {
+  const body = fishBody(fish, grid)
+  return fishInk(fish, grid).every((cell) => {
+    const cx = cell.x + cell.w / 2
+    const cy = cell.y + cell.h / 2
+    return body.some((blot) => Math.hypot(blot.x - cx, blot.y - cy) <= blot.r + 1e-6)
+  })
+}
+
+function blotClearance(blot: { x: number; y: number; r: number }, rect: Rect): number {
+  const x1 = rect.x + rect.w
+  const y1 = rect.y + rect.h
+  const px = Math.min(x1, Math.max(rect.x, blot.x))
+  const py = Math.min(y1, Math.max(rect.y, blot.y))
+  const inside = blot.x > rect.x && blot.x < x1 && blot.y > rect.y && blot.y < y1
+  if (inside) return -(Math.min(blot.x - rect.x, x1 - blot.x, blot.y - rect.y, y1 - blot.y) + blot.r)
+  return Math.hypot(blot.x - px, blot.y - py) - blot.r
+}
 
 function feedsAfterDrag(device: Device, pxPerSecond: number): number {
   const env = pond(desktop)
@@ -113,16 +136,68 @@ describe('stepWorld', () => {
     for (let i = 0; i < 3600; i++) {
       const lure = i % 120 === 0 ? tap(lures[(i / 120) % lures.length], i * 16) : []
       world = stepWorld(world, env, lure, frameDt(i * 16, (i + 1) * 16)).world
-      for (const { pos } of world.fish) {
-        if (pos.x > box.x && pos.x < box.x + box.w && pos.y > box.y && pos.y < box.y + box.h) inside += 1
-        const dx = Math.max(box.x - pos.x, 0, pos.x - box.x - box.w)
-        const dy = Math.max(box.y - pos.y, 0, pos.y - box.y - box.h)
+      for (const fish of world.fish) {
+        const head = fishHead(fish, desktop)
+        if (head.x > box.x && head.x < box.x + box.w && head.y > box.y && head.y < box.y + box.h) inside += 1
+        const dx = Math.max(box.x - head.x, 0, head.x - box.x - box.w)
+        const dy = Math.max(box.y - head.y, 0, head.y - box.y - box.h)
         closest = Math.min(closest, Math.hypot(dx, dy))
       }
     }
     expect(inside).toBe(0)
     expect(closest).toBeLessThan(2 * desktop.cell)
     expect(positions(world.fish)).not.toEqual(start)
+  })
+
+  it('bites food that sits on the drawn mouth', () => {
+    const env = pond(desktop)
+    const world = createWorld(env, 4)
+    const at = fishHead(world.fish[0], desktop)
+    const stepped = stepWorld(world, env, tap(at, 1000), frameDt(0, 16)).world
+    expect(stepped.food).toHaveLength(0)
+    const eater = stepped.fish.reduce(
+      (best, fish) => {
+        const head = fishHead(fish, desktop)
+        const dist = Math.hypot(head.x - at.x, head.y - at.y)
+        return dist < best.dist ? { fish, dist } : best
+      },
+      { fish: stepped.fish[0], dist: Infinity },
+    )
+    expect(eater.dist).toBeLessThanOrEqual(0.7 * desktop.cell)
+    expect(Math.hypot(eater.fish.pos.x - at.x, eater.fish.pos.y - at.y)).toBeGreaterThan(eater.dist)
+  })
+
+  it('keeps the drawn body outside the footer', () => {
+    const stock = createWorld(pond(desktop), 4)
+    for (const fish of stock.fish) {
+      for (let turn = 0; turn < 8; turn++) {
+        for (let wag = 0; wag < 4; wag++) {
+          expect(inkCovered({ ...fish, heading: (turn / 8) * Math.PI * 2, wag: wag / 4 }, desktop)).toBe(true)
+        }
+      }
+    }
+    const footer = { x: 20, y: 744, w: 324, h: 40 }
+    const env = pond(desktop, [footer])
+    let world = createWorld(env, 7)
+    let closest = Infinity
+    let inkOverlap = 0
+    const bleed = inkBleed(desktop)
+    const lure = { x: footer.x + footer.w / 2, y: footer.y + footer.h / 2 }
+    for (let i = 0; i < 2400; i++) {
+      const lureInput = i % 90 === 0 ? tap(lure, i * 16) : []
+      world = stepWorld(world, env, lureInput, frameDt(i * 16, (i + 1) * 16)).world
+      for (const fish of world.fish) {
+        for (const blot of fishBody(fish, desktop)) closest = Math.min(closest, blotClearance(blot, footer) - bleed)
+        if (i % 30 === 0) {
+          for (const cell of fishInk(fish, desktop)) {
+            if (overlaps(cell, footer)) inkOverlap += 1
+          }
+        }
+      }
+    }
+    expect(closest).toBeGreaterThanOrEqual(-0.01)
+    expect(closest).toBeLessThan(2 * desktop.cell)
+    expect(inkOverlap).toBe(0)
   })
 
   it('caps a long gap at one 50 ms step and starts a resumed clock at zero', () => {
@@ -141,17 +216,21 @@ describe('stepWorld', () => {
       x1: phone.origin.x + phone.cols * phone.cell,
       y1: phone.origin.y + phone.rows * phone.cell,
     }
-    const outside = world.fish.filter((f) => f.pos.x < bounds.x0 || f.pos.x > bounds.x1 || f.pos.y < bounds.y0 || f.pos.y > bounds.y1)
+    const outside = world.fish.filter((f) => {
+      const head = fishHead(f, desktop)
+      return head.x < bounds.x0 || head.x > bounds.x1 || head.y < bounds.y0 || head.y > bounds.y1
+    })
     expect(outside.length).toBeGreaterThan(0)
     const shrunk = stepWorld(world, narrow, [], noTime).world
     expect(shrunk.fish.length).toBeGreaterThan(0)
     for (const fish of shrunk.fish) {
-      expect(fish.pos.x).toBeGreaterThanOrEqual(bounds.x0)
-      expect(fish.pos.x).toBeLessThanOrEqual(bounds.x1)
-      expect(fish.pos.y).toBeGreaterThanOrEqual(bounds.y0)
-      expect(fish.pos.y).toBeLessThanOrEqual(bounds.y1)
+      const head = fishHead(fish, phone)
+      expect(head.x).toBeGreaterThanOrEqual(bounds.x0)
+      expect(head.x).toBeLessThanOrEqual(bounds.x1)
+      expect(head.y).toBeGreaterThanOrEqual(bounds.y0)
+      expect(head.y).toBeLessThanOrEqual(bounds.y1)
     }
-    const columns = new Set(shrunk.fish.map((f) => Math.floor((f.pos.x - bounds.x0) / phone.cell)))
+    const columns = new Set(shrunk.fish.map((f) => Math.floor((fishHead(f, phone).x - bounds.x0) / phone.cell)))
     expect(columns.size).toBeGreaterThan(1)
     expect(positions(stepWorld(shrunk, narrow, [], noTime).world.fish)).toEqual(positions(shrunk.fish))
   })

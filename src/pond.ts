@@ -1,4 +1,5 @@
 import type { Grid, Point, Rect } from './grid'
+import { fishBody, fishHead, inkBleed } from './ink'
 
 export type Variety = 'kohaku' | 'showa' | 'ogon' | 'ghost'
 export type Device = 'fine' | 'touch'
@@ -132,7 +133,7 @@ export function stepWorld(
         if (prev && input.tMs <= prev.tMs) break
         const speed = prev ? (distance(prev.at, input.at) * 1000) / (input.tMs - prev.tMs) : 0
         if (speed >= SCARE_SPEED[input.device]) {
-          fish = startle(fish, input.at, world.t, cell)
+          fish = startle(fish, input.at, world.t, env)
           if (press === 'calm') press = 'scared'
         }
         pointer = sample
@@ -158,7 +159,7 @@ export function stepWorld(
     fish = school.map((f) => swim(f, school, food, env, world.t, dt, r))
     const uneaten: Food[] = []
     for (const f of food) {
-      if (fish.some((k) => distance(k.pos, f.at) <= BITE * cell)) ripples = withRipple(ripples, f.at)
+      if (fish.some((k) => distance(fishHead(k, env.grid), f.at) <= BITE * cell)) ripples = withRipple(ripples, f.at)
       else uneaten.push(f)
     }
     food = uneaten
@@ -223,15 +224,18 @@ function spawn(env: PondEnv, r: Rand, id: number, entry: Entry, taken: readonly 
     { x, y: w.y1 },
     { x: w.x0, y },
   ]
-  return {
-    id,
-    variety: pickVariety(rand(r)),
-    pos: escape(entry === 'scatter' ? spreadPoint(env, r, taken) : edges[side], env),
-    heading: entry === 'scatter' ? turn * 2 * Math.PI : ((side + 1) * Math.PI) / 2 + turn - 0.5,
-    speed: CRUISE * env.grid.cell,
-    wag: rand(r),
-    mood: { kind: 'cruise', wander: 0 },
-  }
+  return settle(
+    {
+      id,
+      variety: pickVariety(rand(r)),
+      pos: entry === 'scatter' ? spreadPoint(env, r, taken) : edges[side],
+      heading: entry === 'scatter' ? turn * 2 * Math.PI : ((side + 1) * Math.PI) / 2 + turn - 0.5,
+      speed: CRUISE * env.grid.cell,
+      wag: rand(r),
+      mood: { kind: 'cruise', wander: 0 },
+    },
+    env,
+  )
 }
 
 function pickVariety(u: number): Variety {
@@ -239,10 +243,11 @@ function pickVariety(u: number): Variety {
   return VARIETIES.find((v) => (left -= WEIGHT[v]) < 0) ?? VARIETIES[VARIETIES.length - 1]
 }
 
-function startle(fish: readonly Fish[], from: Point, t: number, cell: number): readonly Fish[] {
+function startle(fish: readonly Fish[], from: Point, t: number, env: PondEnv): readonly Fish[] {
+  const { cell } = env.grid
   return fish.map(
     (f): Fish =>
-      distance(f.pos, from) <= STARTLE_RADIUS * cell
+      distance(fishHead(f, env.grid), from) <= STARTLE_RADIUS * cell
         ? { ...f, mood: { kind: 'startled', from, until: t + STARTLE_S } }
         : f,
   )
@@ -268,25 +273,26 @@ function swim(
   let sx = Math.cos(f.heading + drift * 0.4)
   let sy = Math.sin(f.heading + drift * 0.4)
   let target = CRUISE * cell
-  const bait = startled ? null : nearest(food, f.pos, SEEK_RADIUS * cell)
+  const head = fishHead(f, env.grid)
+  const bait = startled ? null : nearest(food, head, SEEK_RADIUS * cell)
   if (startled) {
-    const away = toward(startled.from, f.pos)
+    const away = toward(startled.from, head)
     sx += away.x * 3
     sy += away.y * 3
     target = STARTLED * cell
   } else if (bait) {
-    const to = toward(f.pos, bait.at)
+    const to = toward(head, bait.at)
     sx += to.x * 3
     sy += to.y * 3
-    target = clamp(distance(f.pos, bait.at) * 1.5, 0.8 * cell, 4 * cell)
+    target = clamp(distance(head, bait.at) * 1.5, 0.8 * cell, 4 * cell)
   }
 
   const probe = {
-    x: f.pos.x + Math.cos(f.heading) * LOOKAHEAD * cell,
-    y: f.pos.y + Math.sin(f.heading) * LOOKAHEAD * cell,
+    x: head.x + Math.cos(f.heading) * LOOKAHEAD * cell,
+    y: head.y + Math.sin(f.heading) * LOOKAHEAD * cell,
   }
   const ahead = repel(probe, env)
-  const here = repel(f.pos, env)
+  const here = repel(head, env)
   sx += ahead.x + here.x
   sy += ahead.y + here.y
 
@@ -304,20 +310,20 @@ function swim(
     f.heading + clamp(wrapAngle(Math.atan2(sy, sx) - f.heading) * STEER * dt, -maxTurn, maxTurn),
   )
   const speed = Math.min(MAX_SPEED * cell, f.speed + (target - f.speed) * Math.min(1, 3 * dt))
-  const w = waterOf(env.grid)
-  const moved = {
-    x: clamp(f.pos.x + Math.cos(heading) * speed * dt, w.x0, w.x1),
-    y: clamp(f.pos.y + Math.sin(heading) * speed * dt, w.y0, w.y1),
-  }
-
-  return {
-    ...f,
-    pos: escape(moved, env),
-    heading,
-    speed,
-    wag: (f.wag + (speed * dt) / (2 * cell)) % 1,
-    mood: startled ?? { kind: 'cruise', wander: drift },
-  }
+  return settle(
+    {
+      ...f,
+      pos: {
+        x: f.pos.x + Math.cos(heading) * speed * dt,
+        y: f.pos.y + Math.sin(heading) * speed * dt,
+      },
+      heading,
+      speed,
+      wag: (f.wag + (speed * dt) / (2 * cell)) % 1,
+      mood: startled ?? { kind: 'cruise', wander: drift },
+    },
+    env,
+  )
 }
 
 function repel(p: Point, env: PondEnv): Point {
@@ -348,33 +354,93 @@ function repel(p: Point, env: PondEnv): Point {
 const wall = (gap: number, margin: number) => (gap < margin ? 2 * (1 - Math.max(0, gap) / margin) : 0)
 
 function fitStill(fish: readonly Fish[], env: PondEnv): Fish[] {
-  const w = waterOf(env.grid)
+  const grid = env.grid
+  const w = waterOf(grid)
   const inside = (p: Point) => p.x >= w.x0 && p.x <= w.x1 && p.y >= w.y0 && p.y <= w.y1
-  if (fish.every((f) => inside(f.pos))) return fish.map((f) => ({ ...f, pos: escape(f.pos, env) }))
+  const mouths = fish.map((f) => fishHead(f, grid))
+  if (mouths.every(inside)) return fish.map((f) => settle(f, env))
   let minX = Infinity
   let maxX = -Infinity
   let minY = Infinity
   let maxY = -Infinity
-  for (const f of fish) {
-    minX = Math.min(minX, f.pos.x)
-    maxX = Math.max(maxX, f.pos.x)
-    minY = Math.min(minY, f.pos.y)
-    maxY = Math.max(maxY, f.pos.y)
+  for (const p of mouths) {
+    minX = Math.min(minX, p.x)
+    maxX = Math.max(maxX, p.x)
+    minY = Math.min(minY, p.y)
+    maxY = Math.max(maxY, p.y)
   }
   const spanX = maxX - minX || 1
   const spanY = maxY - minY || 1
   const width = w.x1 - w.x0
   const height = w.y1 - w.y0
-  return fish.map((f) => ({
-    ...f,
-    pos: escape(
-      {
-        x: w.x0 + ((f.pos.x - minX) / spanX) * width,
-        y: w.y0 + ((f.pos.y - minY) / spanY) * height,
-      },
-      env,
-    ),
-  }))
+  return fish.map((f, i) => {
+    const head = mouths[i]
+    const next = {
+      x: w.x0 + ((head.x - minX) / spanX) * width,
+      y: w.y0 + ((head.y - minY) / spanY) * height,
+    }
+    return settle({ ...f, pos: { x: f.pos.x + next.x - head.x, y: f.pos.y + next.y - head.y } }, env)
+  })
+}
+
+function settle(fish: Fish, env: PondEnv): Fish {
+  let pos = fish.pos
+  for (let pass = 0; pass < 12; pass++) {
+    const head = fishHead({ ...fish, pos }, env.grid)
+    const w = waterOf(env.grid)
+    const clamped = { x: clamp(head.x, w.x0, w.x1), y: clamp(head.y, w.y0, w.y1) }
+    const freed = escape(clamped, env)
+    let dx = freed.x - head.x
+    let dy = freed.y - head.y
+    const body = pushBody({ ...fish, pos: { x: pos.x + dx, y: pos.y + dy } }, env)
+    dx += body.x
+    dy += body.y
+    if (dx === 0 && dy === 0) break
+    pos = { x: pos.x + dx, y: pos.y + dy }
+  }
+  return { ...fish, pos }
+}
+
+function pushBody(fish: Fish, env: PondEnv): Point {
+  if (env.obstacles.length === 0) return { x: 0, y: 0 }
+  const boxes = env.obstacles.map((o) => inflate(o, inkBleed(env.grid) + 0.5))
+  let x = 0
+  let y = 0
+  for (const blot of fishBody(fish, env.grid)) {
+    let bx = blot.x + x
+    let by = blot.y + y
+    for (const box of boxes) {
+      const push = circlePush(bx, by, blot.r, box)
+      if (!push) continue
+      x += push.x
+      y += push.y
+      bx += push.x
+      by += push.y
+    }
+  }
+  return { x, y }
+}
+
+function circlePush(x: number, y: number, r: number, b: Box): Point | null {
+  const px = clamp(x, b.x0, b.x1)
+  const py = clamp(y, b.y0, b.y1)
+  const dx = x - px
+  const dy = y - py
+  const d = Math.hypot(dx, dy)
+  if (d >= r) return null
+  if (d > 0) {
+    const k = (r - d) / d
+    return { x: dx * k, y: dy * k }
+  }
+  const left = x - b.x0
+  const right = b.x1 - x
+  const top = y - b.y0
+  const bottom = b.y1 - y
+  const m = Math.min(left, right, top, bottom)
+  if (m === left) return { x: -(left + r), y: 0 }
+  if (m === right) return { x: right + r, y: 0 }
+  if (m === top) return { x: 0, y: -(top + r) }
+  return { x: 0, y: bottom + r }
 }
 
 function escape(p: Point, env: PondEnv): Point {
